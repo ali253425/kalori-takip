@@ -1,0 +1,12 @@
+{
+    "2026-05-02": {
+        "alinan": 0,
+        "adim": 3000,
+        "sporlar": [
+            "Yürüyüş (Hafif Tempo)"
+        ],
+        "net_durum": "Çok Düşük (Kas Kaybı Riski)",
+        "durum_kodu": "warning",
+        "limit": 2398.4104
+    }
+}
