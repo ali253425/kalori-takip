@@ -82,17 +82,69 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- Authentication System ---
+if "username" not in st.session_state:
+    st.title("🍏 Kalori ve Aktivite Takip - Giriş")
+    
+    tab_login, tab_register = st.tabs(["Giriş Yap", "Yeni Kayıt"])
+    
+    with tab_login:
+        with st.form("login_form"):
+            st.subheader("Oturum Aç")
+            l_user = st.text_input("Kullanıcı Adı")
+            l_pass = st.text_input("Şifre", type="password")
+            submitted_login = st.form_submit_button("Giriş Yap", use_container_width=True)
+            
+            if submitted_login:
+                if db.authenticate_user(l_user, l_pass):
+                    st.session_state.username = l_user
+                    st.success("Giriş başarılı! Yönlendiriliyorsunuz...")
+                    st.rerun()
+                else:
+                    st.error("Kullanıcı adı veya şifre hatalı.")
+                    
+    with tab_register:
+        with st.form("register_form"):
+            st.subheader("Yeni Hesap Oluştur")
+            r_user = st.text_input("Kullanıcı Adı")
+            r_pass = st.text_input("Şifre", type="password")
+            r_pass_conf = st.text_input("Şifre (Tekrar)", type="password")
+            submitted_register = st.form_submit_button("Kayıt Ol", use_container_width=True)
+            
+            if submitted_register:
+                if not r_user or not r_pass:
+                    st.error("Lütfen tüm alanları doldurun.")
+                elif r_pass != r_pass_conf:
+                    st.error("Şifreler eşleşmiyor.")
+                else:
+                    success, msg = db.register_user(r_user, r_pass)
+                    if success:
+                        st.success(msg + " Lütfen 'Giriş Yap' sekmesinden giriş yapın.")
+                    else:
+                        st.error(msg)
+                        
+    st.stop()
+
+# --- Main Application (Logged In) ---
+username = st.session_state.username
+
 # Sidebar - Date Selection
+st.sidebar.title(f"👤 {username}")
+if st.sidebar.button("🚪 Çıkış Yap", use_container_width=True):
+    st.session_state.pop("username")
+    st.rerun()
+    
+st.sidebar.divider()
 st.sidebar.title("📅 Tarih Seçimi")
 selected_date = st.sidebar.date_input("Kayıt Tarihi", datetime.date.today())
 date_str = selected_date.strftime("%Y-%m-%d")
 
 # Load User Data
-profile = db.load_user_profile()
+profile = db.load_user_profile(username)
 bmr = db.calculate_bmr(profile)
 cal_per_step = 0.045  # 1 adım = 0.045 kcal sabit
 
-daily_record = db.get_daily_record(date_str)
+daily_record = db.get_daily_record(username, date_str)
 
 # Dinamik TDEE (Limit) Hesaplaması
 base_tdee = bmr * 1.2
@@ -149,7 +201,7 @@ with tab_summary:
         durum_kodu = "error"
         durum_mesaj = "Limit Aşıldı"
         
-    db.update_daily_snapshot(date_str, {
+    db.update_daily_snapshot(username, date_str, {
         "alinan": total_consumed,
         "adim": current_steps,
         "sporlar": [act["name"] for act in daily_record.get("activities", [])],
@@ -241,7 +293,7 @@ with tab_profile:
         profile["height_cm"] = height
         profile["gender"] = gender
         profile["hedef"] = secilen_hedef
-        db.save_user_profile(profile)
+        db.save_user_profile(username, profile)
         st.success("Profiliniz başarıyla güncellendi!")
         st.rerun()
         
@@ -300,7 +352,7 @@ with tab_food:
                 "carbs": carbs,
                 "fat": fat
             })
-            db.update_daily_record(date_str, daily_record)
+            db.update_daily_record(username, date_str, daily_record)
             st.success(f"{grams}g {selected_food} eklendi ({calories:.1f} kcal).")
             st.rerun()
             
@@ -330,7 +382,7 @@ with tab_food:
                     st.write("Silmek istediğinize emin misiniz?")
                     if st.button("Evet, Sil", key=f"del_food_{idx}", type="primary"):
                         daily_record["foods"].pop(idx)
-                        db.update_daily_record(date_str, daily_record)
+                        db.update_daily_record(username, date_str, daily_record)
                         st.rerun()
             st.markdown("<hr style='margin: 5px 0;'>", unsafe_allow_html=True)
 
@@ -343,7 +395,7 @@ with tab_activity:
         steps = st.number_input("Bugünkü Adım Sayınız", min_value=0, value=daily_record.get("steps", 0), step=500)
         if st.button("Adımı Kaydet", use_container_width=True):
             daily_record["steps"] = steps
-            db.update_daily_record(date_str, daily_record)
+            db.update_daily_record(username, date_str, daily_record)
             st.success("Adım sayısı güncellendi!")
             st.rerun()
             
@@ -366,7 +418,7 @@ with tab_activity:
 
         if st.button("Aktiviteyi Ekle", use_container_width=True):
             daily_record["activities"].append({"name": final_activity_name, "duration_min": duration, "calories": act_calories})
-            db.update_daily_record(date_str, daily_record)
+            db.update_daily_record(username, date_str, daily_record)
             st.success(f"{final_activity_name} eklendi!")
             st.rerun()
             
@@ -381,14 +433,14 @@ with tab_activity:
                     st.write("Silmek istediğinize emin misiniz?")
                     if st.button("Evet, Sil", key=f"del_act_{idx}", type="primary"):
                         daily_record["activities"].pop(idx)
-                        db.update_daily_record(date_str, daily_record)
+                        db.update_daily_record(username, date_str, daily_record)
                         st.rerun()
             st.markdown("<hr style='margin: 5px 0;'>", unsafe_allow_html=True)
 
 with tab_history:
     st.header("📅 İnteraktif Takvim ve Geçmiş")
     
-    history_data = db.load_history()
+    history_data = db.load_history(username)
     
     if not history_data:
         st.info("Henüz kaydedilmiş geçmiş veri bulunmuyor.")

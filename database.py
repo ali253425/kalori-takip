@@ -3,9 +3,7 @@ import os
 
 DATA_DIR = "data"
 FOOD_DB_PATH = os.path.join(DATA_DIR, "food_db.json")
-USER_PROFILE_PATH = os.path.join(DATA_DIR, "user_profile.json")
-USER_RECORDS_PATH = os.path.join(DATA_DIR, "user_records.json")
-HISTORY_PATH = os.path.join(DATA_DIR, "history.json")
+USERS_DB_PATH = os.path.join(DATA_DIR, "users.json")
 
 def load_json(path, default_data):
     if not os.path.exists(path):
@@ -18,8 +16,42 @@ def load_json(path, default_data):
             return default_data
 
 def save_json(path, data):
+    # Dizin yoksa oluştur
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+
+# --- Auth System ---
+def load_users():
+    return load_json(USERS_DB_PATH, {})
+
+def save_users(users):
+    save_json(USERS_DB_PATH, users)
+
+def get_user_dir(username):
+    user_dir = os.path.join(DATA_DIR, username)
+    if not os.path.exists(user_dir):
+        os.makedirs(user_dir)
+    return user_dir
+
+def register_user(username, password):
+    users = load_users()
+    if username in users:
+        return False, "Kullanıcı adı zaten kullanımda."
+    users[username] = {"password": password}
+    save_users(users)
+    get_user_dir(username) # Klasörü oluştur
+    return True, "Kayıt başarılı."
+
+def authenticate_user(username, password):
+    users = load_users()
+    if username in users and users[username]["password"] == password:
+        return True
+    return False
+
+# --- User Paths Helper ---
+def get_user_file(username, filename):
+    return os.path.join(get_user_dir(username), filename)
 
 # --- Food Database ---
 def load_food_db():
@@ -39,7 +71,7 @@ def add_custom_food(name, calories, protein=0, carbs=0, fat=0):
     save_food_db(db)
 
 # --- User Profile & Formulas ---
-def load_user_profile():
+def load_user_profile(username):
     default_profile = {
         "age": 30,
         "gender": "Erkek",
@@ -48,13 +80,14 @@ def load_user_profile():
         "activity_level": "Orta",
         "hedef": "Kilo Koruma"
     }
-    return load_json(USER_PROFILE_PATH, default_profile)
+    path = get_user_file(username, "user_profile.json")
+    return load_json(path, default_profile)
 
-def save_user_profile(profile):
-    save_json(USER_PROFILE_PATH, profile)
+def save_user_profile(username, profile):
+    path = get_user_file(username, "user_profile.json")
+    save_json(path, profile)
 
 def calculate_bmr(profile):
-    # Harris-Benedict Formula
     w = profile.get("weight_kg", 0)
     h = profile.get("height_cm", 0)
     a = profile.get("age", 0)
@@ -79,42 +112,46 @@ def calculate_tdee(profile, bmr):
 
 def calculate_calorie_per_step(profile):
     w = profile.get("weight_kg", 70)
-    # Roughly 0.04 calories for a 65-70kg person, scaling linearly.
     return w * 0.000628
 
 # --- User Records (Daily) ---
-def load_user_records():
-    return load_json(USER_RECORDS_PATH, {})
+def load_user_records(username):
+    path = get_user_file(username, "user_records.json")
+    return load_json(path, {})
 
-def save_user_records(records):
-    save_json(USER_RECORDS_PATH, records)
+def save_user_records(username, records):
+    path = get_user_file(username, "user_records.json")
+    save_json(path, records)
 
-def load_history():
-    return load_json(HISTORY_PATH, {})
+def load_history(username):
+    path = get_user_file(username, "history.json")
+    return load_json(path, {})
 
-def save_history(history_data):
-    save_json(HISTORY_PATH, history_data)
+def save_history(username, history_data):
+    path = get_user_file(username, "history.json")
+    save_json(path, history_data)
 
-def update_daily_snapshot(date_str, snapshot):
-    history = load_history()
+def update_daily_snapshot(username, date_str, snapshot):
+    history = load_history(username)
     history[date_str] = snapshot
-    save_history(history)
+    save_history(username, history)
 
-def get_daily_record(date_str):
-    records = load_user_records()
+def get_daily_record(username, date_str):
+    records = load_user_records(username)
     if date_str not in records:
         records[date_str] = {
             "steps": 0,
             "foods": [],
             "activities": []
         }
-        save_user_records(records)
+        save_user_records(username, records)
     return records[date_str]
 
-def update_daily_record(date_str, new_record):
-    records = load_user_records()
+def update_daily_record(username, date_str, new_record):
+    records = load_user_records(username)
     records[date_str] = new_record
-    save_user_records(records)
+    save_user_records(username, records)
+
 def calculate_total_burn(bmr, steps, exercise_minutes, activity_level):
     activity_multipliers = {
         "Hareketsiz": 1.2,
@@ -124,7 +161,7 @@ def calculate_total_burn(bmr, steps, exercise_minutes, activity_level):
     }
     multiplier = activity_multipliers.get(activity_level, 1.2)
     step_burn = steps * 0.04
-    exercise_burn = exercise_minutes * 6  # Ortalama 6 kcal / dk egzersiz
+    exercise_burn = exercise_minutes * 6
     return (bmr * multiplier) + step_burn + exercise_burn
 
 # --- Activity Database (MET Values) ---
@@ -147,5 +184,4 @@ ACTIVITY_MET = {
 }
 
 def calculate_activity_calories(met, duration_min):
-    # Formül: Kalori = MET * 98 * (Dakika / 60)
     return met * 98 * (duration_min / 60.0)
